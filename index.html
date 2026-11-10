@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Limbusdle</title>
+  <style>
+    :root {
+      --bg: #14110f;
+      --fg: #eee;
+      --card: #221d1a;
+      --ok: #2e8b4f;
+      --bad: #6b2a2a;
+      --part: #a8841c;
+      --accent: #e0b040
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, sans-serif;
+      text-align: center
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px
+    }
+
+    h1 {
+      color: var(--accent);
+      letter-spacing: 2px
+    }
+
+    .search {
+      position: relative;
+      max-width: 460px;
+      margin: 0 auto 16px
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: 1px solid #555;
+      background: var(--card);
+      color: var(--fg);
+      box-sizing: border-box
+    }
+
+    #list {
+      position: absolute;
+      left: 0;
+      right: 0;
+      background: var(--card);
+      border: 1px solid #555;
+      max-height: 240px;
+      overflow: auto;
+      z-index: 5;
+      text-align: left
+    }
+
+    #list div {
+      padding: 8px 10px;
+      cursor: pointer
+    }
+
+    #list div:hover,
+    #list div.sel {
+      background: #3a332e
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 2.2fr 1fr .8fr 1.2fr 1.4fr 1.8fr;
+      gap: 4px;
+      margin: 4px 0
+    }
+
+    .cell {
+      background: var(--bad);
+      padding: 10px 4px;
+      border-radius: 4px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pop .4s;
+      word-break: break-word
+    }
+
+    .cell.ok {
+      background: var(--ok)
+    }
+
+    .cell.part {
+      background: var(--part)
+    }
+
+    .head .cell {
+      background: none;
+      color: #aaa;
+      animation: none
+    }
+
+    .cell.multi {
+      flex-wrap: wrap;
+      gap: 3px
+    }
+
+    .chip {
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: #0006;
+      font-size: 12px
+    }
+
+    .chip.hit {
+      background: var(--ok);
+      outline: 1px solid #fff6
+    }
+
+    @keyframes pop {
+      from {
+        transform: scale(.7);
+        opacity: 0
+      }
+    }
+
+    #msg {
+      min-height: 28px;
+      font-weight: bold;
+      color: var(--accent);
+      margin-bottom: 8px
+    }
+
+    button {
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      cursor: pointer
+    }
+
+    .scroll {
+      overflow-x: auto
+    }
+
+    .grid {
+      min-width: 740px
+    }
+
+    small {
+      color: #999
+    }
+
+    #debug {
+      margin: 0 auto 12px;
+      max-width: 460px;
+      padding: 8px;
+      border: 1px dashed var(--accent);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--accent)
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>LIMBUSDLE</h1>
+    <p>Guess today's identity. Green = match, yellow = partial match (some keywords / attack types shared).<br>
+      ▲ / ▼ = the answer's value is higher / lower.</p>
+    <div class="search">
+      <input id="q" placeholder="Type an identity name…" autocomplete="off">
+      <div id="list" hidden></div>
+    </div>
+    <div id="debug" hidden></div>
+    <div id="msg"></div>
+    <div class="scroll">
+      <div class="grid">
+        <div class="row head">
+          <div class="cell">Identity</div>
+          <div class="cell">Sinner</div>
+          <div class="cell">Rarity</div>
+          <div class="cell">Season</div>
+          <div class="cell">Attack Type</div>
+          <div class="cell">Keywords</div>
+        </div>
+        <div id="rows"></div>
+      </div>
+    </div>
+    <p><button id="reset">Random practice round</button></p>
+    <small id="count"></small>
+  </main>
+  <script src="data.js"></script>
+  <script>
+    const RARITY = { 1: "0", 2: "00", 3: "000" };
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const today = new Date().toISOString().slice(0, 10);
+    let answer, guesses = [], done = false, practice = false, selIdx = -1;
+
+    function dailyIndex() {
+      let h = 0; for (const c of today) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      return h % IDENTITIES.length;
+    }
+    function init() {
+      answer = IDENTITIES[dailyIndex()];
+      $("count").textContent = IDENTITIES.length + " identities";
+      try { const s = JSON.parse(localStorage.getItem("limbusdle-" + today) || "null"); if (s) guesses = s.guesses; } catch (e) { }
+      render(); updateDebug();
+      if (guesses.includes(answer.name)) finish();
+    }
+    function save() { if (!practice) try { localStorage.setItem("limbusdle-" + today, JSON.stringify({ guesses })) } catch (e) { } }
+
+    // Debug view: open the page with ?debug at the end of the URL (e.g. index.html?debug)
+    function updateDebug() {
+      if (!new URLSearchParams(location.search).has("debug")) return;
+      const a = answer;
+      $("debug").hidden = false;
+      $("debug").innerHTML = `DEBUG answer: <b>${esc(a.name)}</b><br>${esc(SINNERS[a.sinner])} · rarity ${RARITY[a.rarity]} · season ${a.seasonLabel} (counts as ${a.season}) · ${esc(a.attack.join(", "))} · ${esc(a.keywords.join(", "))}`;
+    }
+
+    // ---- comparison helpers: each returns {t: html, ok, part, multi} ----
+    function exact(g, a, text) { return { t: esc(text), ok: g === a }; }
+    function arrowCell(g, a, text) { // numeric compare
+      return g === a ? { t: esc(text), ok: true } : { t: esc(text) + (a > g ? " ▲" : " ▼") };
+    }
+    function setCell(gArr, aArr) { // multi-value (keywords / attack type)
+      const hit = gArr.filter(x => aArr.includes(x)).length;
+      const same = hit === gArr.length && hit === aArr.length;
+      return {
+        t: gArr.map(x => `<span class="chip ${aArr.includes(x) ? "hit" : ""}">${esc(x)}</span>`).join(""),
+        ok: same, part: !same && hit > 0, multi: true
+      };
+    }
+    function row(name) {
+      const g = IDENTITIES.find(i => i.name === name), a = answer;
+      const cells = [
+        { t: esc(g.name), ok: g.name === a.name },
+        exact(g.sinner, a.sinner, SINNERS[g.sinner]),
+        arrowCell(g.rarity, a.rarity, RARITY[g.rarity]),
+        arrowCell(g.season, a.season, g.seasonLabel),
+        setCell(g.attack, a.attack),
+        setCell(g.keywords, a.keywords)
+      ];
+      return '<div class="row">' + cells.map(c => `<div class="cell ${c.ok ? "ok" : c.part ? "part" : ""} ${c.multi ? "multi" : ""}">${c.t}</div>`).join("") + '</div>';
+    }
+    function render() { $("rows").innerHTML = [...guesses].reverse().map(row).join(""); }
+    function finish() {
+      done = true; $("q").disabled = true;
+      $("msg").textContent = `Correct! ${answer.name} in ${guesses.length} guess${guesses.length > 1 ? "es" : ""}.`;
+    }
+    function guess(name) {
+      if (done || guesses.includes(name)) return;
+      guesses.push(name); save(); render();
+      $("q").value = ""; $("list").hidden = true; selIdx = -1;
+      if (name === answer.name) finish();
+    }
+    function showList() {
+      const v = $("q").value.trim().toLowerCase();
+      const m = v ? IDENTITIES.filter(i => i.name.toLowerCase().includes(v) && !guesses.includes(i.name)).slice(0, 8) : [];
+      selIdx = m.length ? 0 : -1;
+      $("list").innerHTML = m.map((i, k) => `<div class="${k === 0 ? "sel" : ""}" data-n="${esc(i.name).replace(/"/g, "&quot;")}">${esc(i.name)}</div>`).join("");
+      $("list").hidden = !m.length;
+    }
+    $("q").addEventListener("input", showList);
+    $("list").addEventListener("click", e => { const d = e.target.closest("div[data-n]"); if (d) guess(d.dataset.n); });
+    $("q").addEventListener("keydown", e => {
+      const items = [...$("list").children];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault(); if (!items.length) return;
+        selIdx = (selIdx + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items.forEach((el, k) => el.classList.toggle("sel", k === selIdx));
+      } else if (e.key === "Enter" && items[selIdx]) guess(items[selIdx].dataset.n);
+    });
+    $("reset").onclick = () => {
+      practice = true; guesses = []; done = false; $("q").disabled = false; $("msg").textContent = "";
+      answer = IDENTITIES[Math.floor(Math.random() * IDENTITIES.length)]; render(); updateDebug();
+    };
+    init();
+  </script>
+</body>
+
+</html>
