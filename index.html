@@ -181,6 +181,7 @@
     </div>
     <div id="debug" hidden></div>
     <div id="msg"></div>
+    <p><button id="share" hidden>Copy result for Discord</button></p>
     <div class="scroll">
       <div class="grid">
         <div class="row head">
@@ -239,7 +240,7 @@
         ok: same, part: !same && hit > 0, multi: true
       };
     }
-    function row(name) {
+    function cellsFor(name) {
       const g = IDENTITIES.find(i => i.name === name), a = answer;
       const cells = [
         { t: esc(g.name), ok: g.name === a.name },
@@ -249,11 +250,32 @@
         setCell(g.attack, a.attack),
         setCell(g.keywords, a.keywords)
       ];
+      return cells;
+    }
+    function row(name) {
+      const cells = cellsFor(name);
       return '<div class="row">' + cells.map(c => `<div class="cell ${c.ok ? "ok" : c.part ? "part" : ""} ${c.multi ? "multi" : ""}">${c.t}</div>`).join("") + '</div>';
     }
+    // ---- Discord share: emoji grid, no names, so it doesn't spoil the answer ----
+    function shareText() {
+      const lines = guesses.map(n => cellsFor(n).slice(1).map(c =>
+        c.ok ? "🟩" : c.part ? "🟨" : c.t.includes("▲") ? "⬆️" : c.t.includes("▼") ? "⬇️" : "🟥").join(""));
+      return `Limbusdle ${today} - ${guesses.length} guess${guesses.length > 1 ? "es" : ""}\n`
+        + "Sinner | Rarity | Season | Attack | Keywords\n"
+        + lines.join("\n");
+    }
+    async function copyShare() {
+      const text = shareText();
+      try { await navigator.clipboard.writeText(text); }
+      catch (e) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      $("share").textContent = "Copied! Paste it in Discord";
+      setTimeout(() => { $("share").textContent = "Copy result for Discord"; }, 2500);
+    }
+
     function render() { $("rows").innerHTML = [...guesses].reverse().map(row).join(""); }
     function finish() {
       done = true; $("q").disabled = true;
+      $("share").hidden = practice;
       $("msg").textContent = `Correct! ${answer.name} in ${guesses.length} guess${guesses.length > 1 ? "es" : ""}.`;
     }
     function guess(name) {
@@ -280,9 +302,10 @@
       } else if (e.key === "Enter" && items[selIdx]) guess(items[selIdx].dataset.n);
     });
     $("reset").onclick = () => {
-      practice = true; guesses = []; done = false; $("q").disabled = false; $("msg").textContent = "";
+      practice = true; guesses = []; done = false; $("share").hidden = true; $("q").disabled = false; $("msg").textContent = "";
       answer = IDENTITIES[Math.floor(Math.random() * IDENTITIES.length)]; render(); updateDebug();
     };
+    $("share").onclick = copyShare;
     init();
   </script>
 </body>
